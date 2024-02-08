@@ -365,9 +365,9 @@ struct FakeFsState {
     root: Arc<Mutex<FakeFsEntry>>,
     next_inode: u64,
     next_mtime: SystemTime,
-    event_txs: Vec<smol::channel::Sender<Vec<fsevent::Event>>>,
+    event_txs: Vec<smol::channel::Sender<notify::Event>>,
     events_paused: bool,
-    buffered_events: Vec<fsevent::Event>,
+    buffered_events: Vec<notify::Event>,
     metadata_call_count: usize,
     read_dir_call_count: usize,
 }
@@ -469,16 +469,17 @@ impl FakeFsState {
         callback(new_entry)
     }
 
-    fn emit_event<I, T>(&mut self, paths: I)
+    /// Emits 1 event per path of the specified kind
+    fn emit_event<I, T>(&mut self, kind: EventKind, paths: I)
     where
         I: IntoIterator<Item = T>,
         T: Into<PathBuf>,
     {
         self.buffered_events
-            .extend(paths.into_iter().map(|path| fsevent::Event {
-                event_id: 0,
-                flags: fsevent::StreamFlags::empty(),
-                path: path.into(),
+            .extend(paths.into_iter().map(|path| notify::Event {
+                kind,
+                paths: vec![path.into()],
+                attrs: EventAttributes::new(),
             }));
 
         if !self.events_paused {
@@ -486,11 +487,14 @@ impl FakeFsState {
         }
     }
 
+    // TODO: Can I simplify this to just flush all?
     fn flush_events(&mut self, mut count: usize) {
         count = count.min(self.buffered_events.len());
         let events = self.buffered_events.drain(0..count).collect::<Vec<_>>();
-        self.event_txs.retain(|tx| {
-            let _ = tx.try_send(events.clone());
+        self.event_txs.retain(move |tx| {
+            for event in &events {
+                let _ = tx.try_send(event.clone());
+            }
             !tx.is_closed()
         });
     }
@@ -544,7 +548,8 @@ impl FakeFs {
                 }
             })
             .unwrap();
-        state.emit_event(&[path]);
+        // NOTE: This even omits the attr:info: Some("is: symlink") present on macos
+        state.emit_event(EventKind::Create(CreateKind::Other), &[path]);
     }
 
     pub fn write_file_internal(&self, path: impl AsRef<Path>, content: String) -> Result<()> {
@@ -559,9 +564,12 @@ impl FakeFs {
             mtime,
             content,
         }));
+        let mut created = false;
+        let created_ref = &mut created;
         state.write_path(path, move |entry| {
             match entry {
                 btree_map::Entry::Vacant(e) => {
+                    *created_ref = true;
                     e.insert(file);
                 }
                 btree_map::Entry::Occupied(mut e) => {
@@ -570,7 +578,14 @@ impl FakeFs {
             }
             Ok(())
         })?;
-        state.emit_event(&[path]);
+        if created {
+            state.emit_event(EventKind::Create(CreateKind::File), &[path]);
+        }
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            &[path],
+        );
+
         Ok(())
     }
 
@@ -636,7 +651,7 @@ impl FakeFs {
             f(&mut repo_state);
 
             if emit_git_event {
-                state.emit_event([dot_git]);
+                state.emit_event(EventKind::Other, [dot_git]);
             }
         } else {
             panic!("not a directory");
@@ -674,6 +689,9 @@ impl FakeFs {
             );
         });
         self.state.lock().emit_event(
+            // TODO: Potentially set EventKind based on GitFileStatus? Split
+            // into multiple events...
+            EventKind::Other,
             statuses
                 .iter()
                 .map(|(path, _)| dot_git.parent().unwrap().join(path)),
@@ -844,7 +862,10 @@ impl Fs for FakeFs {
             })?
         }
 
-        self.state.lock().emit_event(&created_dirs);
+        let mut state = self.state.lock();
+        for dir in created_dirs {
+            state.emit_event(EventKind::Create(CreateKind::Folder), [dir]);
+        }
         Ok(())
     }
 
@@ -860,10 +881,12 @@ impl Fs for FakeFs {
             mtime,
             content: String::new(),
         }));
+        let mut overwritten = false;
         state.write_path(path, |entry| {
             match entry {
                 btree_map::Entry::Occupied(mut e) => {
                     if options.overwrite {
+                        overwritten = true;
                         *e.get_mut() = file;
                     } else if !options.ignore_if_exists {
                         return Err(anyhow!("path already exists: {}", path.display()));
@@ -875,7 +898,18 @@ impl Fs for FakeFs {
             }
             Ok(())
         })?;
-        state.emit_event(&[path]);
+        if !overwritten {
+            state.emit_event(EventKind::Create(CreateKind::Folder), [path]);
+        } else {
+            state.emit_event(
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+                [path],
+            );
+            state.emit_event(
+                EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                [path],
+            );
+        }
         Ok(())
     }
 
@@ -920,7 +954,16 @@ impl Fs for FakeFs {
             })
             .unwrap();
 
-        state.emit_event(&[old_path, new_path]);
+        // This does not spark joy, but is the actual observed behavior on macos,
+        // when renaming files with `mv old_name new_name`
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            [old_path],
+        );
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            [new_path],
+        );
         Ok(())
     }
 
@@ -957,7 +1000,19 @@ impl Fs for FakeFs {
         if let Some(entry) = entry {
             entry.lock().set_file_content(&target, content)?;
         }
-        state.emit_event(&[target]);
+        state.emit_event(EventKind::Create(CreateKind::File), [&target]);
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+            [&target],
+        );
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Ownership)),
+            [&target],
+        );
+        state.emit_event(
+            EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            [&target],
+        );
         Ok(())
     }
 
@@ -994,7 +1049,7 @@ impl Fs for FakeFs {
                 e.remove();
             }
         }
-        state.emit_event(&[path]);
+        state.emit_event(EventKind::Remove(RemoveKind::Folder), [path]);
         Ok(())
     }
 
@@ -1023,7 +1078,7 @@ impl Fs for FakeFs {
                 e.remove();
             }
         }
-        state.emit_event(&[path]);
+        state.emit_event(EventKind::Remove(RemoveKind::File), [path]);
         Ok(())
     }
 
@@ -1156,14 +1211,14 @@ impl Fs for FakeFs {
         &self,
         path: &Path,
         _: Duration,
-    ) -> Pin<Box<dyn Send + Stream<Item = Vec<fsevent::Event>>>> {
+    ) -> Pin<Box<dyn Send + Stream<Item = notify::Event>>> {
         self.simulate_random_delay().await;
         let (tx, rx) = smol::channel::unbounded();
         self.state.lock().event_txs.push(tx);
         let path = path.to_path_buf();
         let executor = self.executor.clone();
-        Box::pin(futures::StreamExt::filter(rx, move |events| {
-            let result = events.iter().any(|event| event.path.starts_with(&path));
+        Box::pin(futures::StreamExt::filter(rx, move |event| {
+            let result = event.paths.iter().any(|path| path.starts_with(&path));
             let executor = executor.clone();
             async move {
                 executor.simulate_random_delay().await;
