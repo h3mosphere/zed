@@ -30,14 +30,9 @@ serde_json.workspace = true
 log.workspace = true
 libc = "0.2"
 time.workspace = true
-
-gpui = { workspace = true, optional = true}
-
-[target.'cfg(target_os = "macos")'.dependencies]
-fsevent.workspace = true
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
 notify = "6.1.1"
+
+gpui = { workspace = true, optional = true }
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

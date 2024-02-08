@@ -26,7 +26,6 @@ members = [
     "crates/feedback",
     "crates/file_finder",
     "crates/fs",
-    "crates/fsevent",
     "crates/fuzzy",
     "crates/git",
     "crates/go_to_line",
