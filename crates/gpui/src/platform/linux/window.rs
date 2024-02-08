@@ -4,6 +4,7 @@ use crate::{
     PlatformWindow, Point, Size, WindowAppearance, WindowBounds, WindowOptions, XcbAtoms,
 };
 use blade_graphics as gpu;
+use futures::io::Window;
 use parking_lot::Mutex;
 use raw_window_handle as rwh;
 use std::{
@@ -295,7 +296,7 @@ impl PlatformWindow for LinuxWindow {
 
     //todo!(linux)
     fn appearance(&self) -> WindowAppearance {
-        unimplemented!()
+        WindowAppearance::Light
     }
 
     fn display(&self) -> Rc<dyn PlatformDisplay> {
