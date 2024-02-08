@@ -279,15 +279,32 @@ impl Fs for RealFs {
         latency: Duration,
     ) -> Pin<Box<dyn Send + Stream<Item = Vec<Event>>>> {
         let (tx, rx) = smol::channel::unbounded();
+        log::info!("Watching {path:?}");
 
-        if !path.exists() {
-            log::error!("watch path does not exist: {}", path.display());
-            return Box::pin(rx);
+        let mut watch_path = path;
+        while !watch_path.exists() {
+            log::debug!(
+                "watch path does not exist: {}, trying parent",
+                path.display()
+            );
+            match watch_path.parent() {
+                Some(p) => watch_path = p,
+                None => {
+                    log::error!(
+                        "Watch path, and none of its parents, exists: {}",
+                        path.display()
+                    );
+                    return Box::pin(rx);
+                }
+            }
         }
 
-        let mut watcher = notify::recommended_watcher(move |res| match res {
+        let path = path.to_owned();
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| match res {
             Ok(event) => {
-                let _ = tx.try_send(vec![event]);
+                if event.paths.iter().any(|p| p.starts_with(&path)) {
+                    let _ = tx.try_send(vec![event]);
+                }
             }
             Err(err) => {
                 log::error!("watch error: {}", err);
@@ -300,7 +317,7 @@ impl Fs for RealFs {
             .unwrap();
 
         watcher
-            .watch(path, notify::RecursiveMode::Recursive)
+            .watch(watch_path, notify::RecursiveMode::Recursive)
             .unwrap();
 
         Box::pin(rx)
