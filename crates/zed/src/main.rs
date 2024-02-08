@@ -933,24 +933,22 @@ fn watch_themes(fs: Arc<dyn fs::Fs>, cx: &mut AppContext) {
             .watch(&paths::THEMES_DIR.clone(), Duration::from_millis(100))
             .await;
 
-        while let Some(events) = events.next().await {
-            for event in events {
-                if matches!(event.kind, notify::event::EventKind::Remove(_)) {
-                    // Theme was removed, don't need to reload.
-                    // We may want to remove the theme from the registry, in this case.
-                } else {
-                    if let Some(theme_registry) =
-                        cx.update(|cx| ThemeRegistry::global(cx).clone()).log_err()
-                    {
-                        for path in &event.paths {
-                            if let Some(()) = theme_registry
-                                .load_user_theme(path, fs.clone())
-                                .await
-                                .log_err()
-                            {
-                                cx.update(|cx| ThemeSettings::reload_current_theme(cx))
-                                    .log_err();
-                            }
+        while let Some(event) = events.next().await {
+            if matches!(event.kind, notify::event::EventKind::Remove(_)) {
+                // Theme was removed, don't need to reload.
+                // We may want to remove the theme from the registry, in this case.
+            } else {
+                if let Some(theme_registry) =
+                    cx.update(|cx| ThemeRegistry::global(cx).clone()).log_err()
+                {
+                    for path in &event.paths {
+                        if let Some(()) = theme_registry
+                            .load_user_theme(path, fs.clone())
+                            .await
+                            .log_err()
+                        {
+                            cx.update(|cx| ThemeSettings::reload_current_theme(cx))
+                                .log_err();
                         }
                     }
                 }

@@ -189,14 +189,14 @@ impl ExtensionStore {
 
         let events_task = cx.background_executor().spawn(async move {
             let mut events = fs.watch(&extensions_dir, Duration::from_millis(250)).await;
-            while let Some(events) = events.next().await {
+            while let Some(event) = events.next().await {
                 let mut changed_grammars = Vec::default();
                 let mut changed_languages = Vec::default();
                 let mut changed_themes = Vec::default();
 
                 {
                     let manifest = manifest.read();
-                    for path in events.iter().flat_map(|ev| ev.paths.iter()) {
+                    for path in event.paths.iter() {
                         for (grammar_name, grammar) in &manifest.grammars {
                             let mut grammar_path = extensions_dir.clone();
                             grammar_path

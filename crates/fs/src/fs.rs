@@ -56,7 +56,7 @@ pub trait Fs: Send + Sync {
         &self,
         path: &Path,
         latency: Duration,
-    ) -> Pin<Box<dyn Send + Stream<Item = Vec<Event>>>>;
+    ) -> Pin<Box<dyn Send + Stream<Item = Event>>>;
 
     fn open_repo(&self, abs_dot_git: &Path) -> Option<Arc<Mutex<dyn GitRepository>>>;
     fn is_fake(&self) -> bool;
@@ -277,7 +277,7 @@ impl Fs for RealFs {
         &self,
         path: &Path,
         latency: Duration,
-    ) -> Pin<Box<dyn Send + Stream<Item = Vec<Event>>>> {
+    ) -> Pin<Box<dyn Send + Stream<Item = Event>>> {
         let (tx, rx) = smol::channel::unbounded();
         log::info!("Watching {path:?}");
 
@@ -303,7 +303,7 @@ impl Fs for RealFs {
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| match res {
             Ok(event) => {
                 if event.paths.iter().any(|p| p.starts_with(&path)) {
-                    let _ = tx.try_send(vec![event]);
+                    let _ = tx.try_send(event);
                 }
             }
             Err(err) => {
