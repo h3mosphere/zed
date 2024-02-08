@@ -2965,7 +2965,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "collections",
- "fsevent",
  "futures 0.3.28",
  "git2",
  "gpui",
@@ -2985,25 +2984,6 @@ dependencies = [
  "text",
  "time",
  "util",
-]
-
-[[package]]
-name = "fsevent"
-version = "2.0.2"
-dependencies = [
- "bitflags 1.3.2",
- "fsevent-sys 3.1.0",
- "parking_lot 0.11.2",
- "tempfile",
-]
-
-[[package]]
-name = "fsevent-sys"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca6f5e6817058771c10f0eb0f05ddf1e35844266f972004fe8e4b21fda295bd5"
-dependencies = [
- "libc",
 ]
 
 [[package]]
@@ -5058,7 +5038,7 @@ dependencies = [
  "bitflags 2.4.1",
  "crossbeam-channel",
  "filetime",
- "fsevent-sys 4.1.0",
+ "fsevent-sys",
  "inotify",
  "kqueue",
  "libc",
@@ -6047,7 +6027,6 @@ dependencies = [
  "db",
  "env_logger",
  "fs",
- "fsevent",
  "futures 0.3.28",
  "fuzzy",
  "git",
@@ -10613,7 +10592,6 @@ dependencies = [
  "feedback",
  "file_finder",
  "fs",
- "fsevent",
  "futures 0.3.28",
  "go_to_line",
  "gpui",
@@ -10636,6 +10614,7 @@ dependencies = [
  "mimalloc",
  "node_runtime",
  "notifications",
+ "notify",
  "num_cpus",
  "outline",
  "parking_lot 0.11.2",

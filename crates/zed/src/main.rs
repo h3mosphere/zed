@@ -11,8 +11,6 @@ use db::kvp::KEY_VALUE_STORE;
 use editor::Editor;
 use env_logger::Builder;
 use fs::RealFs;
-#[cfg(target_os = "macos")]
-use fsevent::StreamFlags;
 use futures::StreamExt;
 use gpui::{App, AppContext, AsyncAppContext, Context, SemanticVersion, Task};
 use isahc::{prelude::Configurable, Request};
@@ -937,20 +935,22 @@ fn watch_themes(fs: Arc<dyn fs::Fs>, cx: &mut AppContext) {
 
         while let Some(events) = events.next().await {
             for event in events {
-                if event.flags.contains(StreamFlags::ITEM_REMOVED) {
+                if matches!(event.kind, notify::event::EventKind::Remove(_)) {
                     // Theme was removed, don't need to reload.
                     // We may want to remove the theme from the registry, in this case.
                 } else {
                     if let Some(theme_registry) =
                         cx.update(|cx| ThemeRegistry::global(cx).clone()).log_err()
                     {
-                        if let Some(()) = theme_registry
-                            .load_user_theme(&event.path, fs.clone())
-                            .await
-                            .log_err()
-                        {
-                            cx.update(|cx| ThemeSettings::reload_current_theme(cx))
-                                .log_err();
+                        for path in &event.paths {
+                            if let Some(()) = theme_registry
+                                .load_user_theme(path, fs.clone())
+                                .await
+                                .log_err()
+                            {
+                                cx.update(|cx| ThemeSettings::reload_current_theme(cx))
+                                    .log_err();
+                            }
                         }
                     }
                 }
