@@ -6,6 +6,7 @@ mod client_dispatcher;
 mod dispatcher;
 mod platform;
 mod text_system;
+mod wayland;
 mod x11;
 
 pub(crate) use blade_atlas::*;
